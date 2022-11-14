@@ -3330,3 +3330,35 @@ async def test_reauth(hass):
     entry2.async_start_reauth(hass, {"extra_context": "some_extra_context"})
     await hass.async_block_till_done()
     assert len(hass.config_entries.flow.async_progress()) == 2
+
+
+async def test_get_active_flows(hass):
+    """Test the async_get_active_flows helper."""
+    entry = MockConfigEntry(title="test_title", domain="test")
+    mock_setup_entry = AsyncMock(return_value=True)
+    mock_integration(hass, MockModule("test", async_setup_entry=mock_setup_entry))
+    mock_entity_platform(hass, "config_flow.test", None)
+
+    await entry.async_setup(hass)
+    await hass.async_block_till_done()
+
+    flow = hass.config_entries.flow
+    with patch.object(flow, "async_init", wraps=flow.async_init):
+        entry.async_start_reauth(
+            hass,
+            context={"extra_context": "some_extra_context"},
+            data={"extra_data": 1234},
+        )
+        await hass.async_block_till_done()
+
+    # Check that there's an active reauth flow:
+    active_reauth_flow = next(
+        iter(entry.async_get_active_flows(hass, {config_entries.SOURCE_REAUTH})), None
+    )
+    assert active_reauth_flow is not None
+
+    # Check that there isn't any other flow (in this case, a user flow):
+    active_user_flow = next(
+        iter(entry.async_get_active_flows(hass, {config_entries.SOURCE_USER})), None
+    )
+    assert active_user_flow is None
