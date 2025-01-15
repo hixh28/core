@@ -1,9 +1,10 @@
 """Data update coordinator for the Lidarr integration."""
+
 from __future__ import annotations
 
-from abc import abstractmethod
+from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import Generic, TypeVar, Union, cast
+from typing import Generic, TypeVar, cast
 
 from aiopyarr import LidarrAlbum, LidarrQueue, LidarrRootFolder, exceptions
 from aiopyarr.lidarr_client import LidarrClient
@@ -16,10 +17,10 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Upda
 
 from .const import DEFAULT_MAX_RECORDS, DOMAIN, LOGGER
 
-T = TypeVar("T", bound=Union[list[LidarrRootFolder], LidarrQueue, str, LidarrAlbum])
+T = TypeVar("T", bound=list[LidarrRootFolder] | LidarrQueue | str | LidarrAlbum | int)
 
 
-class LidarrDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T]):
+class LidarrDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T], ABC):
     """Data update coordinator for the Lidarr integration."""
 
     config_entry: ConfigEntry
@@ -39,7 +40,6 @@ class LidarrDataUpdateCoordinator(DataUpdateCoordinator[T], Generic[T]):
         )
         self.api_client = api_client
         self.host_configuration = host_configuration
-        self.system_version: str | None = None
 
     async def _async_update_data(self) -> T:
         """Get the latest data from Lidarr."""
@@ -96,3 +96,11 @@ class WantedDataUpdateCoordinator(LidarrDataUpdateCoordinator[LidarrAlbum]):
             LidarrAlbum,
             await self.api_client.async_get_wanted(page_size=DEFAULT_MAX_RECORDS),
         )
+
+
+class AlbumsDataUpdateCoordinator(LidarrDataUpdateCoordinator[int]):
+    """Albums update coordinator."""
+
+    async def _fetch_data(self) -> int:
+        """Fetch the album data."""
+        return len(cast(list[LidarrAlbum], await self.api_client.async_get_albums()))

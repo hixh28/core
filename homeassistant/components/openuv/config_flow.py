@@ -1,4 +1,5 @@
 """Config flow to configure the OpenUV component."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -9,8 +10,7 @@ from pyopenuv import Client
 from pyopenuv.errors import OpenUvError
 import voluptuous as vol
 
-from homeassistant import config_entries
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult
 from homeassistant.const import (
     CONF_API_KEY,
     CONF_ELEVATION,
@@ -18,8 +18,11 @@ from homeassistant.const import (
     CONF_LONGITUDE,
 )
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers import aiohttp_client, config_validation as cv
+from homeassistant.helpers.schema_config_entry_flow import (
+    SchemaFlowFormStep,
+    SchemaOptionsFlowHandler,
+)
 
 from .const import (
     CONF_FROM_WINDOW,
@@ -34,6 +37,21 @@ STEP_REAUTH_SCHEMA = vol.Schema(
         vol.Required(CONF_API_KEY): str,
     }
 )
+
+OPTIONS_SCHEMA = vol.Schema(
+    {
+        vol.Optional(
+            CONF_FROM_WINDOW, description={"suggested_value": DEFAULT_FROM_WINDOW}
+        ): vol.Coerce(float),
+        vol.Optional(
+            CONF_TO_WINDOW, description={"suggested_value": DEFAULT_TO_WINDOW}
+        ): vol.Coerce(float),
+    }
+)
+
+OPTIONS_FLOW = {
+    "init": SchemaFlowFormStep(OPTIONS_SCHEMA),
+}
 
 
 @dataclass
@@ -51,7 +69,7 @@ class OpenUvData:
         return f"{self.latitude}, {self.longitude}"
 
 
-class OpenUvFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
+class OpenUvFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle an OpenUV config flow."""
 
     VERSION = 2
@@ -80,11 +98,10 @@ class OpenUvFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _async_verify(
         self, data: OpenUvData, error_step_id: str, error_schema: vol.Schema
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Verify the credentials and create/re-auth the entry."""
         websession = aiohttp_client.async_get_clientsession(self.hass)
         client = Client(data.api_key, 0, 0, session=websession)
-        client.disable_request_retries()
 
         try:
             await client.uv_index()
@@ -116,18 +133,20 @@ class OpenUvFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     @staticmethod
     @callback
-    def async_get_options_flow(config_entry: ConfigEntry) -> OpenUvOptionsFlowHandler:
+    def async_get_options_flow(config_entry: ConfigEntry) -> SchemaOptionsFlowHandler:
         """Define the config flow to handle options."""
-        return OpenUvOptionsFlowHandler(config_entry)
+        return SchemaOptionsFlowHandler(config_entry, OPTIONS_FLOW)
 
-    async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> FlowResult:
+    async def async_step_reauth(
+        self, entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
         """Handle configuration by re-auth."""
         self._reauth_data = entry_data
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle re-auth completion."""
         if not user_input:
             return self.async_show_form(
@@ -150,7 +169,7 @@ class OpenUvFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
+    ) -> ConfigFlowResult:
         """Handle the start of the config flow."""
         if not user_input:
             return self.async_show_form(
@@ -168,42 +187,3 @@ class OpenUvFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
         self._abort_if_unique_id_configured()
 
         return await self._async_verify(data, "user", self.step_user_schema)
-
-
-class OpenUvOptionsFlowHandler(config_entries.OptionsFlow):
-    """Handle a OpenUV options flow."""
-
-    def __init__(self, entry: ConfigEntry) -> None:
-        """Initialize."""
-        self.entry = entry
-
-    async def async_step_init(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Manage the options."""
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
-
-        return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_FROM_WINDOW,
-                        description={
-                            "suggested_value": self.entry.options.get(
-                                CONF_FROM_WINDOW, DEFAULT_FROM_WINDOW
-                            )
-                        },
-                    ): vol.Coerce(float),
-                    vol.Optional(
-                        CONF_TO_WINDOW,
-                        description={
-                            "suggested_value": self.entry.options.get(
-                                CONF_TO_WINDOW, DEFAULT_TO_WINDOW
-                            )
-                        },
-                    ): vol.Coerce(float),
-                }
-            ),
-        )
