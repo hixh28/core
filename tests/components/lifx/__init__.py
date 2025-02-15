@@ -1,8 +1,10 @@
 """Tests for the lifx integration."""
+
 from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from aiolifx.aiolifx import Light
@@ -14,15 +16,17 @@ MODULE = "homeassistant.components.lifx"
 MODULE_CONFIG_FLOW = "homeassistant.components.lifx.config_flow"
 IP_ADDRESS = "127.0.0.1"
 LABEL = "My Bulb"
+GROUP = "My Group"
 SERIAL = "aa:bb:cc:dd:ee:cc"
 MAC_ADDRESS = "aa:bb:cc:dd:ee:cd"
+DHCP_FORMATTED_MAC = "aabbccddeecd"
 DEFAULT_ENTRY_TITLE = LABEL
 
 
 class MockMessage:
     """Mock a lifx message."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, **kwargs: Any) -> None:
         """Init message."""
         self.target_addr = SERIAL
         self.count = 9
@@ -34,7 +38,7 @@ class MockMessage:
 class MockFailingLifxCommand:
     """Mock a lifx command that fails."""
 
-    def __init__(self, bulb, **kwargs):
+    def __init__(self, bulb, **kwargs: Any) -> None:
         """Init command."""
         self.bulb = bulb
         self.calls = []
@@ -57,14 +61,17 @@ class MockLifxCommand:
         """Return name."""
         return "mock_lifx_command"
 
-    def __init__(self, bulb, **kwargs):
+    def __init__(self, bulb, **kwargs: Any) -> None:
         """Init command."""
         self.bulb = bulb
         self.calls = []
-        self.msg_kwargs = kwargs
+        self.msg_kwargs = {
+            k.removeprefix("msg_"): v for k, v in kwargs.items() if k.startswith("msg_")
+        }
         for k, v in kwargs.items():
-            if k != "callb":
-                setattr(self.bulb, k, v)
+            if k.startswith("msg_") or k == "callb":
+                continue
+            setattr(self.bulb, k, v)
 
     def __call__(self, *args, **kwargs):
         """Call command."""
@@ -81,6 +88,7 @@ def _mocked_bulb() -> Light:
     bulb = Light(asyncio.get_running_loop(), SERIAL, IP_ADDRESS)
     bulb.host_firmware_version = "3.00"
     bulb.label = LABEL
+    bulb.group = GROUP
     bulb.color = [1, 2, 3, 4]
     bulb.power_level = 0
     bulb.fire_and_forget = AsyncMock()
@@ -88,6 +96,7 @@ def _mocked_bulb() -> Light:
     bulb.try_sending = AsyncMock()
     bulb.set_infrared = MockLifxCommand(bulb)
     bulb.get_label = MockLifxCommand(bulb)
+    bulb.get_group = MockLifxCommand(bulb)
     bulb.get_color = MockLifxCommand(bulb)
     bulb.set_power = MockLifxCommand(bulb)
     bulb.set_color = MockLifxCommand(bulb)
@@ -150,9 +159,16 @@ def _mocked_infrared_bulb() -> Light:
 def _mocked_light_strip() -> Light:
     bulb = _mocked_bulb()
     bulb.product = 31  # LIFX Z
-    bulb.color_zones = [MagicMock(), MagicMock()]
+    bulb.zones_count = 3
+    bulb.color_zones = [MagicMock()] * 3
     bulb.effect = {"effect": "MOVE", "speed": 3, "duration": 0, "direction": "RIGHT"}
-    bulb.get_color_zones = MockLifxCommand(bulb)
+    bulb.get_color_zones = MockLifxCommand(
+        bulb,
+        msg_seq_num=bulb.seq_next(),
+        msg_count=bulb.zones_count,
+        msg_index=0,
+        msg_color=bulb.color_zones,
+    )
     bulb.set_color_zones = MockLifxCommand(bulb)
     bulb.get_multizone_effect = MockLifxCommand(bulb)
     bulb.set_multizone_effect = MockLifxCommand(bulb)
@@ -167,6 +183,19 @@ def _mocked_tile() -> Light:
     bulb.effect = {"effect": "OFF"}
     bulb.get_tile_effect = MockLifxCommand(bulb)
     bulb.set_tile_effect = MockLifxCommand(bulb)
+    bulb.get64 = MockLifxCommand(bulb)
+    bulb.get_device_chain = MockLifxCommand(bulb)
+    return bulb
+
+
+def _mocked_ceiling() -> Light:
+    bulb = _mocked_bulb()
+    bulb.product = 176  # LIFX Ceiling
+    bulb.effect = {"effect": "OFF"}
+    bulb.get_tile_effect = MockLifxCommand(bulb)
+    bulb.set_tile_effect = MockLifxCommand(bulb)
+    bulb.get64 = MockLifxCommand(bulb)
+    bulb.get_device_chain = MockLifxCommand(bulb)
     return bulb
 
 
@@ -194,7 +223,7 @@ def _patch_device(device: Light | None = None, no_device: bool = False):
     class MockLifxConnecton:
         """Mock lifx discovery."""
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             """Init connection."""
             if no_device:
                 self.device = _mocked_failing_bulb()
@@ -222,7 +251,7 @@ def _patch_discovery(device: Light | None = None, no_device: bool = False):
     class MockLifxDiscovery:
         """Mock lifx discovery."""
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             """Init discovery."""
             if no_device:
                 self.lights = {}
@@ -238,8 +267,12 @@ def _patch_discovery(device: Light | None = None, no_device: bool = False):
 
     @contextmanager
     def _patcher():
-        with patch.object(discovery, "DEFAULT_TIMEOUT", 0), patch(
-            "homeassistant.components.lifx.discovery.LifxDiscovery", MockLifxDiscovery
+        with (
+            patch.object(discovery, "DEFAULT_TIMEOUT", 0),
+            patch(
+                "homeassistant.components.lifx.discovery.LifxDiscovery",
+                MockLifxDiscovery,
+            ),
         ):
             yield
 
@@ -251,10 +284,10 @@ def _patch_config_flow_try_connect(
 ):
     """Patch out discovery."""
 
-    class MockLifxConnecton:
+    class MockLifxConnection:
         """Mock lifx discovery."""
 
-        def __init__(self, *args, **kwargs):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
             """Init connection."""
             if no_device:
                 self.device = _mocked_failing_bulb()
@@ -272,7 +305,7 @@ def _patch_config_flow_try_connect(
     def _patcher():
         with patch(
             "homeassistant.components.lifx.config_flow.LIFXConnection",
-            MockLifxConnecton,
+            MockLifxConnection,
         ):
             yield
 

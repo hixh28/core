@@ -1,14 +1,15 @@
-"""Support for the PRT Heatmiser themostats using the V3 protocol."""
+"""Support for the PRT Heatmiser thermostats using the V3 protocol."""
+
 from __future__ import annotations
 
 import logging
 from typing import Any
 
-from heatmiserV3 import connection, heatmiser
+from heatmiserv3 import connection, heatmiser
 import voluptuous as vol
 
 from homeassistant.components.climate import (
-    PLATFORM_SCHEMA,
+    PLATFORM_SCHEMA as CLIMATE_PLATFORM_SCHEMA,
     ClimateEntity,
     ClimateEntityFeature,
     HVACMode,
@@ -19,11 +20,10 @@ from homeassistant.const import (
     CONF_ID,
     CONF_NAME,
     CONF_PORT,
-    TEMP_CELSIUS,
-    TEMP_FAHRENHEIT,
+    UnitOfTemperature,
 )
 from homeassistant.core import HomeAssistant
-import homeassistant.helpers.config_validation as cv
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
@@ -38,7 +38,7 @@ TSTATS_SCHEMA = vol.Schema(
     )
 )
 
-PLATFORM_SCHEMA = PLATFORM_SCHEMA.extend(
+PLATFORM_SCHEMA = CLIMATE_PLATFORM_SCHEMA.extend(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_PORT): cv.string,
@@ -77,7 +77,11 @@ class HeatmiserV3Thermostat(ClimateEntity):
     """Representation of a HeatmiserV3 thermostat."""
 
     _attr_hvac_modes = [HVACMode.HEAT, HVACMode.OFF]
-    _attr_supported_features = ClimateEntityFeature.TARGET_TEMPERATURE
+    _attr_supported_features = (
+        ClimateEntityFeature.TARGET_TEMPERATURE
+        | ClimateEntityFeature.TURN_OFF
+        | ClimateEntityFeature.TURN_ON
+    )
 
     def __init__(self, therm, device, uh1):
         """Initialize the thermostat."""
@@ -120,9 +124,9 @@ class HeatmiserV3Thermostat(ClimateEntity):
             return
         self.dcb = self.therm.read_dcb()
         self._attr_temperature_unit = (
-            TEMP_CELSIUS
+            UnitOfTemperature.CELSIUS
             if (self.therm.get_temperature_format() == "C")
-            else TEMP_FAHRENHEIT
+            else UnitOfTemperature.FAHRENHEIT
         )
         self._current_temperature = int(self.therm.get_floor_temp())
         self._target_temperature = int(self.therm.get_target_temp())

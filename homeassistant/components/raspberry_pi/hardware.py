@@ -1,4 +1,5 @@
 """The Raspberry Pi hardware platform."""
+
 from __future__ import annotations
 
 from homeassistant.components.hardware.models import BoardInfo, HardwareInfo
@@ -17,6 +18,7 @@ BOARD_NAMES = {
     "rpi3-64": "Raspberry Pi 3",
     "rpi4": "Raspberry Pi 4 (32-bit)",
     "rpi4-64": "Raspberry Pi 4",
+    "rpi5-64": "Raspberry Pi 5",
 }
 
 MODELS = {
@@ -28,6 +30,7 @@ MODELS = {
     "rpi3-64": "3",
     "rpi4": "4",
     "rpi4-64": "4",
+    "rpi5-64": "5",
 }
 
 
@@ -36,7 +39,7 @@ def async_info(hass: HomeAssistant) -> list[HardwareInfo]:
     """Return board info."""
     if (os_info := get_os_info(hass)) is None:
         raise HomeAssistantError
-    board: str
+    board: str | None
     if (board := os_info.get("board")) is None:
         raise HomeAssistantError
     if not board.startswith("rpi"):
